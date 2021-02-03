@@ -432,7 +432,7 @@ uint64_t m6532_tick(m6532_t* c, uint64_t pins) {
     port=M6532_GET_PB(pins);
     port &= ~c->portb.ddr;
     port |= (c->portb.dr & c->portb.ddr);
-    M6532_SET_PA(pins, port);
+    M6532_SET_PB(pins, port);
 
     // Edge Detect
     // Input and output DDR can trigger the IRQ
