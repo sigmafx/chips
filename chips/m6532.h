@@ -169,7 +169,6 @@ typedef struct {
     uint16_t ticks;
     uint8_t intervals;
     uint8_t divideby;
-    bool triggered;
 } m6532_timer_t;
 
 /* m6532 state */
@@ -202,8 +201,8 @@ typedef struct {
 #define M6532_SET_ADDR(p,a) {p=(p&~M6532_AB_PINS)|((((uint64_t)a)&0x7FULL)<<0);}
 
 /* Get control pins */
-#define M6532_GET_CS1(p) ((p)&M6522_CS1)
-#define M6532_GET_CS2(p) ((p)&M6522_CS2)
+#define M6532_GET_CS1(p) ((p)&M6532_CS1)
+#define M6532_GET_CS2(p) ((p)&M6532_CS2)
 #define M6532_GET_RW(p) ((p)&M6532_RW)
 #define M6532_GET_RS(p) ((p)&M6532_RS)
 #define M6532_GET_IRQ(p) ((p)&M6532_IRQ)
@@ -217,11 +216,11 @@ typedef struct {
 #define M6532_SET_RS(p) (p|=M6532_RS)
 #define M6532_RESET_RS(p) (p&=~M6532_RS)
 
-/* initialize a new 6522 instance */
+/* initialize a new 6532 instance */
 void m6532_init(m6532_t* m6532);
-/* reset an existing 6522 instance */
+/* reset an existing 6532 instance */
 void m6532_reset(m6532_t* m6532);
-/* tick the m6522 */
+/* tick the m6532 */
 uint64_t m6532_tick(m6532_t* m6532, uint64_t pins);
 
 #ifdef __cplusplus
@@ -326,6 +325,7 @@ static uint8_t _m6532_read_timerint(m6532_t* c, uint8_t addr, uint64_t pins) {
     if(addr & M6532_A0) {
         // Timer
         data = c->timer.intervals;
+        c->timer.enabled = (addr & M6532_A3);
 
         // Reset int flag timer bit
         c->intflag &= ~M6532_INTFLAG_TIMER;
@@ -344,8 +344,9 @@ static void _m6532_write_timerint(m6532_t* c, uint8_t addr, uint8_t data) {
     if(addr & M6532_A4) {
         // Timer
         c->timer.enabled = (addr & M6532_A3);
-        c->timer.divideby = (addr & (M6532_A0|M6532_A1|M6532_A2));
+        c->timer.ticks = 0;
         c->timer.intervals = data;
+        c->timer.divideby = (addr & (M6532_A0|M6532_A1));
 
         // Reset int flag timer bit
         c->intflag &= ~M6532_INTFLAG_TIMER;
