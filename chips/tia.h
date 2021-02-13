@@ -113,7 +113,7 @@ typedef struct {
 /* tia state */
 typedef struct {
     enum TV tv;
-    uint16_t scanline;
+    uint16_t scanclock;
     uint8_t regWrite[0x2D];
     uint8_t regRead[0x0D];
     bool rdy;
@@ -237,19 +237,12 @@ uint64_t tia_tick(tia_t* tia, uint64_t pins);
 void tia_init(tia_t* c, enum TV tv)
 {
     c->tv = tv;
-    c->scanline = 0;
+    c->scanclock = 0;
     c->rdy = true;
 }
 
 uint64_t tia_tick(tia_t* c, uint64_t pins)
 {
-    if(c->scanline == 228)
-    {
-        // End of line - time for HSYNC
-        c->scanline = 0;
-        c->rdy = true;
-    }
-        
     if ((pins & (TIA_CS0|TIA_CS1|TIA_CS2|TIA_CS3)) == TIA_CS1) {
         uint8_t addr = TIA_GET_ADDR(pins);
         uint8_t data = TIA_GET_DATA(pins);
@@ -293,12 +286,18 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
         }
     }
 
+    c->scanclock++;
+    if(c->scanclock == 228)
+    {
+        // End of line - time for HSYNC
+        c->scanclock = 0;
+
+        // Release CPU
+        c->rdy = true;
+    }
+
     // Set RDY latch
     c->rdy ? TIA_SET_RDY(pins) : TIA_RESET_RDY(pins);
-    // c->scanline == 0 ? TIA_SET_HSYNC(pins) ? TIA_RESET_HSYNC(pins);
-
-    // Keep tack of count on current scanline
-    c->scanline++;
 
     return pins;
 }
