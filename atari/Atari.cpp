@@ -1,10 +1,36 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <tchar.h>
+#include <stdint.h>
+#include <stdio.h>
+
 #include "Atari.h"
+#include "../chips/cartridge.h"
 
 COLORREF screen[228][262];
 HWND hDlgMain;
+int x, y;
+cart_t cart;
+
+void tick(uint8_t red, uint8_t green, uint8_t blue)
+{
+	screen[x][y] = RGB(red, green, blue);
+	x++;
+}
+
+void OnHSync(bool active)
+{
+	y++;
+	x = 0;
+}
+
+void OnVSync(bool active)
+{
+}
+
+void OnVBlank(bool active)
+{
+}
 
 INT_PTR CALLBACK DlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -14,6 +40,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_ int       /* nCmdShow */)
 {
     memset(screen, 0x7F, sizeof(DWORD) * 228 * 262);
+	x = y = 0;
+
+	// Initialise the cartridge
+	cart_init(&cart);
+	FILE* file = fopen("C:\\Users\\David\\Documents\\GitHub\\chips\\carts\\kernel_01.bin", "rb");
+	uint8_t content[0x1000];
+	fread(content, 0x1000, 1, file);
+	fclose(file);
+	cart_load(&cart, content, 0x1000, 0);
 
     DialogBox(hInstance, MAKEINTRESOURCE(IDD_DLG_MAIN), HWND_DESKTOP, DlgProc);
 }
