@@ -28,10 +28,8 @@
 #define CART_A9        (1ULL<<9)
 #define CART_A10       (1ULL<<10)
 #define CART_A11       (1ULL<<11)
-#define CART_AB_PINS   (CART_A0|CART_A1|CART_A2|CART_A3|CART_A4|CART_A5|CART_A6|CART_A7|CART_A8|CART_A9|CART_A10|CART_A11)
-
-/* chip select */
-#define CART_CS        (1ULL<<12)
+#define CART_A12       (1ULL<<12)
+#define CART_AB_PINS   (CART_A0|CART_A1|CART_A2|CART_A3|CART_A4|CART_A5|CART_A6|CART_A7|CART_A8|CART_A9|CART_A10|CART_A11|CART_A12)
 
 /* data bus pins */
 #define CART_D0        (1ULL<<16)
@@ -46,7 +44,7 @@
 
 #define CART_SET_DATA(p,d) {p=((p&~CART_DB_PINS)|((((uint64_t)d)&0xFF)<<16));}
 #define CART_GET_DATA(p) ((uint8_t)(p>>16))
-#define CART_SET_ADDR(p,a) {p=(p&~CART_AB_PINS)|((((uint64_t)a)&0xFFFULL)<<0);}
+#define CART_SET_ADDR(p,a) {p=(p&~CART_AB_PINS)|((((uint64_t)a)&0x1FFFULL)<<0);}
 #define CART_GET_ADDR(p) ((uint16_t)(p&CART_AB_PINS))
 #define CART_GET_CS(p) ((p)&CART_CS)
 #define CART_SET_CS(p) {p|=CART_CS;}
@@ -76,9 +74,9 @@ bool cart_load(cart_t* cart, uint8_t* content, uint16_t len, uint16_t offset)
 
 uint64_t cart_read(cart_t* cart, uint64_t pins)
 {
-    if(CART_GET_CS(pins))
+    if((pins & CART_A12) == CART_A12)
     {
-        uint16_t addr = CART_GET_ADDR(pins);
+        uint16_t addr = CART_GET_ADDR(pins) & (CART_A0|CART_A1|CART_A2|CART_A3|CART_A4|CART_A5|CART_A6|CART_A7|CART_A8|CART_A9|CART_A10|CART_A11);
         CART_SET_DATA(pins, cart->rom[addr]);
     }
 
