@@ -114,9 +114,9 @@ typedef struct {
 typedef struct {
     enum TV tv;
     uint16_t scanclock;
+	uint16_t scanline;
     uint8_t regWrite[0x2D];
     uint8_t regRead[0x0D];
-    bool rdy;
 } tia_t;
 
 /* extract 8-bit data bus from 64-bit pins */
@@ -125,8 +125,6 @@ typedef struct {
 #define TIA_SET_DATA(p,d) {p=((p&~0xFF0000)|((((uint64_t)d)&0xFF)<<16));}
 /* extract port A pins */
 #define TIA_GET_I(p) ((uint8_t)(p>>48))
-/* merge port A pins into pin mask */
-#define TIA_SET_PA(p,a) {p=(p&0xFF00FFFFFFFFFFFFULL)|((((uint64_t)a)&0xFFULL)<<48);}
 /* extract 6-bit address from 64-bit pins */
 #define TIA_GET_ADDR(p) ((uint8_t)(p&TIA_AB_PINS))
 /* set 6-bit address to 64-bit pins */
@@ -138,6 +136,7 @@ typedef struct {
 #define TIA_GET_CS2(p) ((p)&TIA_CS2)
 #define TIA_GET_CS3(p) ((p)&TIA_CS3)
 #define TIA_GET_RW(p) ((p)&TIA_RW)
+#define TIA_GET_RDY(p) ((p)&TIA_RDY)
 
 /* Set/reset input control pins */
 #define TIA_SET_CS0(p) (p|=TIA_CS0)
@@ -154,7 +153,7 @@ typedef struct {
 #define TIA_RESET_RDY(p) (p&=~TIA_RDY)
 
 /* initialize a new 6532 instance */
-void tia_init(tia_t* tia, enum TV tv);
+uint64_t tia_init(tia_t* tia, enum TV tv);
 /* tick the tia */
 uint64_t tia_tick(tia_t* tia, uint64_t pins);
 
@@ -234,11 +233,13 @@ uint64_t tia_tick(tia_t* tia, uint64_t pins);
 #define INPT4   0x0C
 #define INPT5   0x0D
 
-void tia_init(tia_t* c, enum TV tv)
+uint64_t tia_init(tia_t* c, enum TV tv)
 {
     c->tv = tv;
     c->scanclock = 0;
-    c->rdy = true;
+    c->scanline = 0;
+
+    return 0ULL;
 }
 
 uint64_t tia_tick(tia_t* c, uint64_t pins)
@@ -253,7 +254,7 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
             switch (addr)
             {
                 case WSYNC:
-                    c->rdy = false;
+					c->regWrite[WSYNC] = 0xFF;
                     break;
 
                 case RSYNC:
@@ -289,15 +290,25 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
     c->scanclock++;
     if(c->scanclock == 228)
     {
-        // End of line - time for HSYNC
         c->scanclock = 0;
+		c->scanline++;
 
         // Release CPU
-        c->rdy = true;
+		c->regWrite[WSYNC] = 0x00;
     }
 
+	if (c->regWrite[VSYNC] & 0b00000010)
+	{
+		c->scanline = 0;
+	}
+
+	if (c->scanclock < 68)
+	{
+		// Horizontal Blank / Sync
+	}
+
     // Set RDY latch
-    c->rdy ? TIA_SET_RDY(pins) : TIA_RESET_RDY(pins);
+    c->regWrite[WSYNC] ? TIA_SET_RDY(pins) : TIA_RESET_RDY(pins);
 
     return pins;
 }

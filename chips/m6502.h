@@ -347,6 +347,9 @@ uint16_t m6502_pc(m6502_t* cpu);
 /* M6510: check for IO port access to address 0 or 1 */
 #define M6510_CHECK_IO(p) ((p&0xFFFEULL)==0)
 
+#define M6502_SET_RDY(p) ((p)|=M6502_RDY)
+#define M6502_RESET_RDY(p) ((p)&=~M6502_RDY)
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

@@ -217,9 +217,9 @@ typedef struct {
 #define M6532_RESET_RS(p) (p&=~M6532_RS)
 
 /* initialize a new 6532 instance */
-void m6532_init(m6532_t* m6532);
+uint64_t m6532_init(m6532_t* m6532);
 /* reset an existing 6532 instance */
-void m6532_reset(m6532_t* m6532);
+uint64_t m6532_reset(m6532_t* m6532);
 /* tick the m6532 */
 uint64_t m6532_tick(m6532_t* m6532, uint64_t pins);
 
@@ -250,7 +250,7 @@ static void _m6532_init_timer(m6532_timer_t* t) {
 static void _m6532_init_edgedetect(m6532_edgedetect_t* e) {
 }
 
-void m6532_reset(m6532_t* c) {
+uint64_t m6532_reset(m6532_t* c) {
     CHIPS_ASSERT(c);
     memset(c, 0, sizeof(*c));
     _m6532_init_port(&c->porta);
@@ -259,10 +259,12 @@ void m6532_reset(m6532_t* c) {
     _m6532_init_edgedetect(&c->edgedetect);
 
     c->intflag = 0x00;
+
+	return 0ULL; // return reset state of pins
 }
 
-void m6532_init(m6532_t* c) {
-    m6532_reset(c);
+uint64_t m6532_init(m6532_t* c) {
+    return m6532_reset(c);
 }
 
 static inline uint8_t _m6532_read_ram(m6532_t* c, uint8_t addr) {
@@ -325,7 +327,7 @@ static uint8_t _m6532_read_timerint(m6532_t* c, uint8_t addr, uint64_t pins) {
     if(addr & M6532_A0) {
         // Timer
         data = c->timer.intervals;
-        c->timer.enabled = (addr & M6532_A3);
+        c->timer.enabled = (addr & M6532_A3) != 0ULL;
 
         // Reset int flag timer bit
         c->intflag &= ~M6532_INTFLAG_TIMER;
@@ -343,7 +345,7 @@ static uint8_t _m6532_read_timerint(m6532_t* c, uint8_t addr, uint64_t pins) {
 static void _m6532_write_timerint(m6532_t* c, uint8_t addr, uint8_t data) {
     if(addr & M6532_A4) {
         // Timer
-        c->timer.enabled = (addr & M6532_A3);
+        c->timer.enabled = (addr & M6532_A3) != 0ULL;
         c->timer.ticks = 0;
         c->timer.intervals = data;
         c->timer.divideby = (addr & (M6532_A0|M6532_A1));
@@ -353,8 +355,8 @@ static void _m6532_write_timerint(m6532_t* c, uint8_t addr, uint8_t data) {
     }
     else  {
         // Edge Detect Control - data is ignored
-        c->edgedetect.enabled = (addr & M6532_A1);
-        c->edgedetect.positive = (addr & M6532_A0);
+        c->edgedetect.enabled = (addr & M6532_A1) != 0ULL;
+        c->edgedetect.positive = (addr & M6532_A0) != 0ULL;
     }
 }
 
@@ -442,7 +444,7 @@ uint64_t m6532_tick(m6532_t* c, uint64_t pins) {
             c->intflag |= M6532_INTFLAG_PA7;
         }
     }
-    c->edgedetect.porta7_last = pins & M6532_PA7;
+    c->edgedetect.porta7_last = (pins & M6532_PA7) != 0ULL;
 
     // Timer
     if(c->timer.enabled) {
@@ -452,12 +454,7 @@ uint64_t m6532_tick(m6532_t* c, uint64_t pins) {
     }
 
     // Set interrupt
-    if(c->intflag) {
-        M6532_RESET_IRQ(pins);
-    }
-    else {
-        M6532_SET_IRQ(pins);
-    }
+    c->intflag ? M6532_RESET_IRQ(pins) : M6532_SET_IRQ(pins);
 
     return pins;
 }
