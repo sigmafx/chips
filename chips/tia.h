@@ -27,7 +27,7 @@
     *           |           |           *
     *   A0  --->|           |---> RDY   *
     *        ...|           |           *
-    *   A5  --->|    tia    |           *
+    *   A5  --->|    TIA    |           *
     *           |           |<--- RW    *
     *   I0  --->|           |<--- CS0   *
     *        ...|           |<--- CS1   *
@@ -55,6 +55,18 @@
         3. This notice may not be removed or altered from any source
         distribution.
 #*/
+
+// Stella Programmer's Guide PDF
+// https://www.atarihq.com/danb/files/stella.pdf
+// https://www.atarihq.com/danb/files/
+
+// Interesting notes about TIA and timings
+// http://atarihq.com/danb/files/TIA_HW_Notes.txt
+
+// TIA Pinout
+// https://www.atarihq.com/danb/tia.shtml
+
+
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -104,19 +116,23 @@ enum TV {
     PAL = 1
 };
 
+typedef void(*CB_COMPOSITE)(uint8_t);
+
 /* I/O port state */
 typedef struct {
     uint8_t dr;
     uint8_t ddr;
 } tia_port_t;
 
-/* tia state */
+/* TIA state */
 typedef struct {
     enum TV tv;
     uint16_t scanclock;
-	uint16_t scanline;
     uint8_t regWrite[0x2D];
     uint8_t regRead[0x0D];
+	CB_COMPOSITE tick;
+	CB_COMPOSITE hsync;
+	CB_COMPOSITE vsync;
 } tia_t;
 
 /* extract 8-bit data bus from 64-bit pins */
@@ -152,9 +168,9 @@ typedef struct {
 #define TIA_SET_RDY(p) (p|=TIA_RDY)
 #define TIA_RESET_RDY(p) (p&=~TIA_RDY)
 
-/* initialize a new 6532 instance */
-uint64_t tia_init(tia_t* tia, enum TV tv);
-/* tick the tia */
+/* initialize a new TIA instance */
+uint64_t tia_init(tia_t* tia, enum TV tv, CB_COMPOSITE tick, CB_COMPOSITE hsync, CB_COMPOSITE vsync);
+/* tick the TIA */
 uint64_t tia_tick(tia_t* tia, uint64_t pins);
 
 #ifdef __cplusplus
@@ -233,11 +249,14 @@ uint64_t tia_tick(tia_t* tia, uint64_t pins);
 #define INPT4   0x0C
 #define INPT5   0x0D
 
-uint64_t tia_init(tia_t* c, enum TV tv)
+uint64_t tia_init(tia_t* c, enum TV tv, CB_COMPOSITE tick, CB_COMPOSITE hsync, CB_COMPOSITE vsync)
 {
     c->tv = tv;
     c->scanclock = 0;
-    c->scanline = 0;
+
+	c->tick = tick;
+	c->hsync = hsync;
+	c->vsync = vsync;
 
     return 0ULL;
 }
@@ -251,63 +270,105 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
         if(TIA_GET_RW(pins))
         {
             // Read
-            switch (addr)
-            {
-                case WSYNC:
-					c->regWrite[WSYNC] = 0xFF;
-                    break;
-
-                case RSYNC:
-                    break;
-
-                case RESP0:
-                    break;
-
-                case RESP1:
-                    break;
-
-                case RESM0:
-                    break;
-
-                case RESM1:
-                    break;
-
-                case RESBL:
-                    break;
-
-                default:
-                    // Write to register
-                    c->regWrite[addr] = data;
-                    break;
-            }
         }
         else
         {
             // Write
-        }
+			switch (addr)
+			{
+			case WSYNC:
+				c->regWrite[WSYNC] = 0x01;
+				break;
+
+			case RSYNC:
+				c->scanclock = 0;
+				break;
+
+			case RESP0:
+				break;
+
+			case RESP1:
+				break;
+
+			case RESM0:
+				break;
+
+			case RESM1:
+				break;
+
+			case RESBL:
+				break;
+
+			default:
+				// Write to register
+				c->regWrite[addr] = data;
+				break;
+			}
+		}
     }
 
     c->scanclock++;
-    if(c->scanclock == 228)
+    switch(c->scanclock)
     {
-        c->scanclock = 0;
-		c->scanline++;
+        case 16:
+            // SHS - Set H-SYNC
+            break;
 
-        // Release CPU
-		c->regWrite[WSYNC] = 0x00;
+        case 32:
+            // RHS - Reset H-SYNC
+            break;
+
+        case 64:
+            // RHB - Reset H-BLANK
+            break;
+
+        case 68:
+            // Pixels start being drawn
+            break;
+
+        case 72:
+            // LRHB - Late RHB
+            break;
+
+        case 144:
+            // CNT - Center
+            break;
+
+        case 223:
+            // If RESET, RDY will be set 5 cycles prior tp H-BLANK
+            break;
+
+        case 228:
+            // SHB - H-BLANK
+            c->scanclock = 0;
+            c->regWrite[WSYNC] = 0x00;
+            break;
+
+        default:
+            break;
     }
 
 	if (c->regWrite[VSYNC] & 0b00000010)
 	{
-		c->scanline = 0;
+		c->vsync(1);
 	}
-
-	if (c->scanclock < 68)
+	else
 	{
-		// Horizontal Blank / Sync
+		c->vsync(0);
 	}
 
-    // Set RDY latch
+	if (c->scanclock == 0)
+	{
+		c->hsync(1);
+	}
+	else
+	{ 
+		c->hsync(0);
+	}
+
+	c->tick(c->scanclock > 67 ? c->regWrite[COLUBK] : 0);
+
+    // Set RDY
     c->regWrite[WSYNC] ? TIA_SET_RDY(pins) : TIA_RESET_RDY(pins);
 
     return pins;

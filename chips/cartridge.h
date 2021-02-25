@@ -75,7 +75,7 @@ bool cart_load(cart_t* cart, uint8_t* content, uint16_t len, uint16_t offset)
     return true;
 }
 
-uint64_t cart_read(cart_t* cart, uint64_t pins)
+uint64_t cart_tick(cart_t* cart, uint64_t pins)
 {
     if(CART_GET_CS(pins))
     {

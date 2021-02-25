@@ -5,7 +5,6 @@
 #define IDC_MYICON                      2
 #define IDD_ATARI_DIALOG                102
 #define IDR_MAINFRAME                   128
-#define IDD_DIALOG1                     129
 #define IDD_DLG_MAIN                    129
 #define IDC_STATIC                      -1
 
