@@ -66,6 +66,8 @@
 // TIA Pinout
 // https://www.atarihq.com/danb/tia.shtml
 
+// 2600 Programming
+// https://www.randomterrain.com/atari-2600-memories.html#assembly_language
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -129,7 +131,7 @@ typedef struct {
     enum TV tv;
     uint16_t scanclock;
     uint8_t regWrite[0x2D];
-    uint8_t regRead[0x0D];
+    uint8_t regRead[0x0E];
 	CB_COMPOSITE tick;
 	CB_COMPOSITE hsync;
 	CB_COMPOSITE vsync;
@@ -167,24 +169,6 @@ typedef struct {
 #define TIA_RESET_RW(p) (p&=~TIA_RW)
 #define TIA_SET_RDY(p) (p|=TIA_RDY)
 #define TIA_RESET_RDY(p) (p&=~TIA_RDY)
-
-/* initialize a new TIA instance */
-uint64_t tia_init(tia_t* tia, enum TV tv, CB_COMPOSITE tick, CB_COMPOSITE hsync, CB_COMPOSITE vsync);
-/* tick the TIA */
-uint64_t tia_tick(tia_t* tia, uint64_t pins);
-
-#ifdef __cplusplus
-} /* extern "C" */
-#endif
-
-/*-- IMPLEMENTATION ----------------------------------------------------------*/
-#define CHIPS_IMPL 
-#ifdef CHIPS_IMPL
-#include <string.h>
-#ifndef CHIPS_ASSERT
-#include <assert.h>
-#define CHIPS_ASSERT(c) assert(c)
-#endif
 
 // Write registers
 #define VSYNC   0x00
@@ -249,8 +233,28 @@ uint64_t tia_tick(tia_t* tia, uint64_t pins);
 #define INPT4   0x0C
 #define INPT5   0x0D
 
+/* initialize a new TIA instance */
+uint64_t tia_init(tia_t* tia, enum TV tv, CB_COMPOSITE tick, CB_COMPOSITE hsync, CB_COMPOSITE vsync);
+/* tick the TIA */
+uint64_t tia_tick(tia_t* tia, uint64_t pins);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+/*-- IMPLEMENTATION ----------------------------------------------------------*/
+#define CHIPS_IMPL 
+#ifdef CHIPS_IMPL
+#include <string.h>
+#ifndef CHIPS_ASSERT
+#include <assert.h>
+#define CHIPS_ASSERT(c) assert(c)
+#endif
+
 uint64_t tia_init(tia_t* c, enum TV tv, CB_COMPOSITE tick, CB_COMPOSITE hsync, CB_COMPOSITE vsync)
 {
+    memset(c, '\0', sizeof(tia_t));
+
     c->tv = tv;
     c->scanclock = 0;
 
@@ -265,14 +269,16 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
 {
     if ((pins & (TIA_CS0|TIA_CS1|TIA_CS2|TIA_CS3)) == TIA_CS1) {
         uint8_t addr = TIA_GET_ADDR(pins);
-        uint8_t data = TIA_GET_DATA(pins);
 
         if(TIA_GET_RW(pins))
         {
             // Read
+            TIA_SET_DATA(pins, c->regRead[addr]);
         }
         else
         {
+            uint8_t data = TIA_GET_DATA(pins);
+
             // Write
 			switch (addr)
 			{
@@ -348,25 +354,31 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
             break;
     }
 
-	if (c->regWrite[VSYNC] & 0b00000010)
-	{
-		c->vsync(1);
-	}
-	else
-	{
-		c->vsync(0);
-	}
+    if (c->vsync != NULL)
+    {
+        if (c->regWrite[VSYNC] & 0b00000010)
+        {
+            c->vsync(1);
+        }
+        else
+        {
+            c->vsync(0);
+        }
+    }
 
-	if (c->scanclock == 0)
-	{
-		c->hsync(1);
-	}
-	else
-	{ 
-		c->hsync(0);
-	}
+    if (c->hsync != NULL)
+    {
+        if (c->scanclock == 0)
+        {
+            c->hsync(1);
+        }
+        else
+        {
+            c->hsync(0);
+        }
+    }
 
-	c->tick(c->scanclock > 67 ? c->regWrite[COLUBK] : 0);
+    if (c->tick != NULL) c->tick(c->scanclock > 67 ? c->regWrite[COLUBK] : 0);
 
     // Set RDY
     c->regWrite[WSYNC] ? TIA_SET_RDY(pins) : TIA_RESET_RDY(pins);
