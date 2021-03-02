@@ -118,7 +118,7 @@ enum TV {
     PAL = 1
 };
 
-typedef void(*CB_COMPOSITE)(uint8_t);
+typedef void(*cb_tv)(uint8_t);
 
 /* I/O port state */
 typedef struct {
@@ -129,12 +129,12 @@ typedef struct {
 /* TIA state */
 typedef struct {
     enum TV tv;
-    uint16_t scanclock;
+    uint16_t colourclock;
     uint8_t regWrite[0x2D];
     uint8_t regRead[0x0E];
-	CB_COMPOSITE tick;
-	CB_COMPOSITE hsync;
-	CB_COMPOSITE vsync;
+    cb_tv colourtick;
+    cb_tv hsync;
+    cb_tv vsync;
 } tia_t;
 
 /* extract 8-bit data bus from 64-bit pins */
@@ -234,7 +234,7 @@ typedef struct {
 #define INPT5   0x0D
 
 /* initialize a new TIA instance */
-uint64_t tia_init(tia_t* tia, enum TV tv, CB_COMPOSITE tick, CB_COMPOSITE hsync, CB_COMPOSITE vsync);
+uint64_t tia_init(tia_t* tia, enum TV tv, cb_tv colourtick, cb_tv hsync, cb_tv vsync);
 /* tick the TIA */
 uint64_t tia_tick(tia_t* tia, uint64_t pins);
 
@@ -251,14 +251,14 @@ uint64_t tia_tick(tia_t* tia, uint64_t pins);
 #define CHIPS_ASSERT(c) assert(c)
 #endif
 
-uint64_t tia_init(tia_t* c, enum TV tv, CB_COMPOSITE tick, CB_COMPOSITE hsync, CB_COMPOSITE vsync)
+uint64_t tia_init(tia_t* c, enum TV tv, cb_tv colourtick, cb_tv hsync, cb_tv vsync)
 {
     memset(c, '\0', sizeof(tia_t));
 
     c->tv = tv;
-    c->scanclock = 0;
+    c->colourclock = 0;
 
-	c->tick = tick;
+	c->colourtick = colourtick;
 	c->hsync = hsync;
 	c->vsync = vsync;
 
@@ -287,7 +287,7 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
 				break;
 
 			case RSYNC:
-				c->scanclock = 0;
+				c->colourclock = 0;
 				break;
 
 			case RESP0:
@@ -313,47 +313,88 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
 		}
     }
 
-    c->scanclock++;
-    switch(c->scanclock)
+    if (c->colourclock < 68)
     {
-        case 16:
-            // SHS - Set H-SYNC
-            break;
+        // Horizontal blanking
+        if (c->colourtick != NULL)
+        {
+            c->colourtick(0);
+        }
+    }
+    else
+    {
+        uint8_t colour;
+        uint32_t playfield;
 
-        case 32:
-            // RHS - Reset H-SYNC
-            break;
+        playfield = c->regWrite[PF0];
+        playfield |= c->regWrite[PF1] << 4;
+        playfield |= c->regWrite[PF2] << 12;
 
-        case 64:
-            // RHB - Reset H-BLANK
-            break;
+        if (c->colourclock < 148)
+        {
+            // Left side
+            if (playfield & (1 << ((c->colourclock - 68) / 4)))
+            {
+                colour = COLUPF;
+            }
+            else
+            {
+                colour = COLUBK;
+            }
+        }
+        else
+        {
+            // Right side
+            if (c->regWrite[CTRLPF] & 0b00000001)
+            {
+                if (playfield & (0b10000000000000000000 >> ((c->colourclock - 148) / 4)))
+                {
+                    colour = COLUPF;
+                }
+                else
+                {
+                    colour = COLUBK;
+                }
+            }
+            else
+            {
+                if (playfield & 1 << ((c->colourclock - 148) / 4))
+                {
+                    colour = COLUPF;
+                }
+                else
+                {
+                    colour = COLUBK;
+                }
+            }
+        }
 
-        case 68:
-            // Pixels start being drawn
-            break;
-
-        case 72:
-            // LRHB - Late RHB
-            break;
-
-        case 144:
-            // CNT - Center
-            break;
-
-        case 223:
-            // If RESET, RDY will be set 5 cycles prior tp H-BLANK
-            break;
-
-        case 228:
-            // SHB - H-BLANK
-            c->scanclock = 0;
-            c->regWrite[WSYNC] = 0x00;
-            break;
-
-        default:
-            break;
+        // Drawing pixel
+        if (c->colourtick != NULL)
+        {
+            c->colourtick(c->regWrite[colour]);
+        }
     }
 
+    // Horizontal sync
+    if (c->colourclock == 227)
+    {
+        c->regWrite[WSYNC] = 0x00;
+
+        if (c->hsync != NULL)
+        {
+            c->hsync(1);
+        }
+    }
+    else
+    {
+        if (c->hsync != NULL)
+        {
+            c->hsync(0);
+        }
+    }
+
+    // Vertical sync
     if (c->vsync != NULL)
     {
         if (c->regWrite[VSYNC] & 0b00000010)
@@ -366,19 +407,15 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
         }
     }
 
-    if (c->hsync != NULL)
+    // Advance colour clock
+    if (c->colourclock == 227)
     {
-        if (c->scanclock == 0)
-        {
-            c->hsync(1);
-        }
-        else
-        {
-            c->hsync(0);
-        }
+        c->colourclock = 0;
     }
-
-    if (c->tick != NULL) c->tick(c->scanclock > 67 ? c->regWrite[COLUBK] : 0);
+    else
+    {
+        c->colourclock++;
+    }
 
     // Set RDY
     c->regWrite[WSYNC] ? TIA_SET_RDY(pins) : TIA_RESET_RDY(pins);
