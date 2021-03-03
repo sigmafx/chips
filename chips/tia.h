@@ -135,6 +135,7 @@ typedef struct {
     cb_tv colourtick;
     cb_tv hsync;
     cb_tv vsync;
+    uint32_t PF;
 } tia_t;
 
 /* extract 8-bit data bus from 64-bit pins */
@@ -251,12 +252,30 @@ uint64_t tia_tick(tia_t* tia, uint64_t pins);
 #define CHIPS_ASSERT(c) assert(c)
 #endif
 
+// Bit masks for PF0,PF1,PF2 to PF construction
+#define TIA_PF0_BITS            0x0000000F
+#define TIA_PF1_BITS            0x00000FF0
+#define TIA_PF2_BITS            0x000FF000
+
+// Object visibility for current colour clock
+#define TIA_OBJECT_BIT_PF       0b00000001
+#define TIA_OBJECT_BIT_P0       0b00000010
+#define TIA_OBJECT_BIT_P1       0b00000100
+#define TIA_OBJECT_BIT_M0       0b00001000
+#define TIA_OBJECT_BIT_M1       0b00010000
+#define TIA_OBJECT_BIT_BL       0b00100000
+
+// CTRLPF bit accessors
+#define TIA_CTRLPF_BIT_REF      0b00000001
+#define TIA_CTRLPF_BIT_SCORE    0b00000010
+#define TIA_CTRLPF_BIT_PFP      0b00000100
+#define TIA_CTRLPF_BIT_BALLSIZE 0b00110000
+
 uint64_t tia_init(tia_t* c, enum TV tv, cb_tv colourtick, cb_tv hsync, cb_tv vsync)
 {
     memset(c, '\0', sizeof(tia_t));
 
     c->tv = tv;
-    c->colourclock = 0;
 
 	c->colourtick = colourtick;
 	c->hsync = hsync;
@@ -287,7 +306,7 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
 				break;
 
 			case RSYNC:
-				c->colourclock = 0;
+				c->regWrite[RSYNC] = 0x01;
 				break;
 
 			case RESP0:
@@ -304,6 +323,32 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
 
 			case RESBL:
 				break;
+
+            case PF0:
+				c->regWrite[addr] = data;
+                c->PF &= ~TIA_PF0_BITS;
+                c->PF |= ((uint32_t)data >> 4);
+                break;
+
+            case PF1:
+				c->regWrite[addr] = data;
+                c->PF &= ~TIA_PF1_BITS;
+                data = ((data & 0x80) >> 7) |
+                    ((data & 0x40) >> 5) |
+                    ((data & 0x20) >> 3) |
+                    ((data & 0x10) >> 1) |
+                    ((data & 0x01) << 7) |
+                    ((data & 0x02) << 5) |
+                    ((data & 0x04) << 3) |
+                    ((data & 0x08) << 1);
+                c->PF |= ((uint32_t)data << 4);
+                break;
+
+            case PF2:
+				c->regWrite[addr] = data;
+                c->PF &= ~TIA_PF2_BITS;
+                c->PF |= ((uint32_t)data << 12);
+                break;
 
 			default:
 				// Write to register
@@ -323,50 +368,52 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
     }
     else
     {
+        uint8_t pixels = 0x00;
         uint8_t colour;
-        uint32_t playfield;
 
-        playfield = c->regWrite[PF0];
-        playfield |= c->regWrite[PF1] << 4;
-        playfield |= c->regWrite[PF2] << 12;
-
+        // PF Playfield
         if (c->colourclock < 148)
         {
             // Left side
-            if (playfield & (1 << ((c->colourclock - 68) / 4)))
-            {
-                colour = COLUPF;
-            }
-            else
-            {
-                colour = COLUBK;
-            }
+            pixels |= c->PF & (1 << ((c->colourclock - 68) / 4)) ? TIA_OBJECT_BIT_PF : 0x00;
         }
         else
         {
             // Right side
-            if (c->regWrite[CTRLPF] & 0b00000001)
+            if (c->regWrite[CTRLPF] & TIA_CTRLPF_BIT_REF)
             {
-                if (playfield & (0b10000000000000000000 >> ((c->colourclock - 148) / 4)))
+                // Reflect
+                pixels |= c->PF & (0b10000000000000000000 >> ((c->colourclock - 148) / 4)) ? TIA_OBJECT_BIT_PF : 0x00;
+            }
+            else
+            {
+                // Duplicate
+                pixels |= c->PF & 1 << ((c->colourclock - 148) / 4) ? TIA_OBJECT_BIT_PF : 0x00;
+            }
+        }
+
+        // Apply priorities / settings to decide colour
+        if (pixels & TIA_OBJECT_BIT_PF)
+        {
+            if (c->regWrite[CTRLPF] & TIA_CTRLPF_BIT_SCORE)
+            {
+                if (c->colourclock < 148)
                 {
-                    colour = COLUPF;
+                    colour = COLUP0;
                 }
                 else
                 {
-                    colour = COLUBK;
+                    colour = COLUP1;
                 }
             }
             else
             {
-                if (playfield & 1 << ((c->colourclock - 148) / 4))
-                {
-                    colour = COLUPF;
-                }
-                else
-                {
-                    colour = COLUBK;
-                }
+                colour = COLUPF;
             }
+        }
+        else
+        {
+            colour = COLUBK;
         }
 
         // Drawing pixel

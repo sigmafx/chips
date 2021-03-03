@@ -98,7 +98,7 @@ void test_HSYNC_RDY(void)
     TEST_CHECK(!TIA_GET_RDY(pins));
 }
 
-void test_playfield_01(void)
+void test_playfield_01_duplicate(void)
 {
     tia_t tia;
     uint64_t pins;
@@ -116,15 +116,15 @@ void test_playfield_01(void)
     pins = tia_tick(&tia, pins); // 1
     TEST_CHECK(g_colour == 0x00);
     TIA_SET_ADDR(pins, PF0);
-    TIA_SET_DATA(pins, 0x01);
+    TIA_SET_DATA(pins, 0x20);
     pins = tia_tick(&tia, pins); // 2
     TEST_CHECK(g_colour == 0x00);
     TIA_SET_ADDR(pins, PF1);
-    TIA_SET_DATA(pins, 0x00);
+    TIA_SET_DATA(pins, 0x02);
     pins = tia_tick(&tia, pins); // 3
     TEST_CHECK(g_colour == 0x00);
     TIA_SET_ADDR(pins, PF2);
-    TIA_SET_DATA(pins, 0x00);
+    TIA_SET_DATA(pins, 0x02);
     pins = tia_tick(&tia, pins); // 4
     TEST_CHECK(g_colour == 0x00);
 
@@ -135,34 +135,93 @@ void test_playfield_01(void)
         TEST_CHECK(g_colour == 0x00);
     }
 
-    for (clock = 68; clock < 148; clock++)
+    for (clock = 68; clock < 228; clock++)
     {
-        pins = tia_tick(&tia, pins); // 68 - 147
-        if ((clock - 68) / 4 == 0)
-        {
-            TEST_CHECK(g_colour == 0x04);
-        }
-        else
-        {
-            TEST_CHECK(g_colour == 0x02);
-        }
-    }
+        uint8_t bkClock = (clock - 68) / 4;
 
-    for (clock = 148; clock < 228; clock++)
-    {
-        pins = tia_tick(&tia, pins); // 148 - 227
-        if ((clock - 148) / 4 == 0)
+        pins = tia_tick(&tia, pins); // 68 - 227
+        switch (bkClock)
         {
-            TEST_CHECK(g_colour == 0x04);
-        }
-        else
-        {
-            TEST_CHECK(g_colour == 0x02);
+            case 1:
+            case 10:
+            case 13:
+            case 21:
+            case 30:
+            case 33:
+                TEST_CHECK(g_colour == 0x04);
+                break;
+
+            default:
+                TEST_CHECK(g_colour == 0x02);
+                break;
         }
     }
 }
 
-void test_playfield_02(void)
+void test_playfield_02_reflect(void)
+{
+    tia_t tia;
+    uint64_t pins;
+    uint16_t clock;
+
+    pins = init_with_colour(&tia);
+
+    TIA_RESET_RW(pins);
+    TIA_SET_ADDR(pins, COLUBK);
+    TIA_SET_DATA(pins, 0x02);
+    pins = tia_tick(&tia, pins); // 0
+    TEST_CHECK(g_colour == 0x00);
+    TIA_SET_ADDR(pins, COLUPF);
+    TIA_SET_DATA(pins, 0x04);
+    pins = tia_tick(&tia, pins); // 1
+    TIA_SET_ADDR(pins, CTRLPF);
+    TIA_SET_DATA(pins, 0x01);
+    pins = tia_tick(&tia, pins); // 2
+    TEST_CHECK(g_colour == 0x00);
+    TIA_SET_ADDR(pins, PF0);
+    TIA_SET_DATA(pins, 0x20);
+    pins = tia_tick(&tia, pins); // 3
+    TEST_CHECK(g_colour == 0x00);
+    TIA_SET_ADDR(pins, PF1);
+    TIA_SET_DATA(pins, 0x02);
+    pins = tia_tick(&tia, pins); // 4
+    TEST_CHECK(g_colour == 0x00);
+    TIA_SET_ADDR(pins, PF2);
+    TIA_SET_DATA(pins, 0x02);
+    pins = tia_tick(&tia, pins); // 5
+    TEST_CHECK(g_colour == 0x00);
+
+    TIA_RESET_CS1(pins);
+    for (clock = 6; clock < 68; clock++)
+    {
+        pins = tia_tick(&tia, pins); // 5 - 67
+        TEST_CHECK(g_colour == 0x00);
+    }
+
+    for (clock = 68; clock < 228; clock++)
+    {
+        uint8_t bkClock = (clock - 68) / 4;
+
+        pins = tia_tick(&tia, pins); // 68 - 227
+        switch (bkClock)
+        {
+        case 1:
+        case 10:
+        case 13:
+        case 26:
+        case 29:
+        case 38:
+            TEST_CHECK(g_colour == 0x04);
+            break;
+
+        default:
+            TEST_CHECK(g_colour == 0x02);
+            break;
+        }
+    }
+}
+
+void test_playfield_03_score(void)
 {
     tia_t tia;
     uint64_t pins;
@@ -179,63 +238,71 @@ void test_playfield_02(void)
     TIA_SET_DATA(pins, 0x04);
     pins = tia_tick(&tia, pins); // 1
     TEST_CHECK(g_colour == 0x00);
-    TIA_SET_ADDR(pins, PF0);
-    TIA_SET_DATA(pins, 0x01);
+    TIA_SET_ADDR(pins, COLUP0);
+    TIA_SET_DATA(pins, 0x06);
     pins = tia_tick(&tia, pins); // 2
     TEST_CHECK(g_colour == 0x00);
-    TIA_SET_ADDR(pins, PF1);
-    TIA_SET_DATA(pins, 0x00);
+    TIA_SET_ADDR(pins, COLUP1);
+    TIA_SET_DATA(pins, 0x08);
     pins = tia_tick(&tia, pins); // 3
     TEST_CHECK(g_colour == 0x00);
-    TIA_SET_ADDR(pins, PF2);
-    TIA_SET_DATA(pins, 0x00);
+    TIA_SET_ADDR(pins, CTRLPF);
+    TIA_SET_DATA(pins, 0x02);
     pins = tia_tick(&tia, pins); // 4
     TEST_CHECK(g_colour == 0x00);
-    TIA_SET_ADDR(pins, CTRLPF);
-    TIA_SET_DATA(pins, 0x01);
+    TIA_SET_ADDR(pins, PF0);
+    TIA_SET_DATA(pins, 0x20);
     pins = tia_tick(&tia, pins); // 5
+    TEST_CHECK(g_colour == 0x00);
+    TIA_SET_ADDR(pins, PF1);
+    TIA_SET_DATA(pins, 0x02);
+    pins = tia_tick(&tia, pins); // 6
+    TEST_CHECK(g_colour == 0x00);
+    TIA_SET_ADDR(pins, PF2);
+    TIA_SET_DATA(pins, 0x02);
+    pins = tia_tick(&tia, pins); // 7
     TEST_CHECK(g_colour == 0x00);
 
     TIA_RESET_CS1(pins);
-    for (clock = 6; clock < 68; clock++)
+    for (clock = 8; clock < 68; clock++)
     {
-        pins = tia_tick(&tia, pins); // 6 - 67
+        pins = tia_tick(&tia, pins); // 8 - 67
         TEST_CHECK(g_colour == 0x00);
     }
 
-    for (clock = 68; clock < 148; clock++)
+    for (clock = 68; clock < 228; clock++)
     {
-        pins = tia_tick(&tia, pins); // 68 - 147
-        if ((clock - 68) / 4 == 0)
-        {
-            TEST_CHECK(g_colour == 0x04);
-        }
-        else
-        {
-            TEST_CHECK(g_colour == 0x02);
-        }
-    }
+        uint8_t bkClock = (clock - 68) / 4;
 
-    for (clock = 148; clock < 228; clock++)
-    {
-        pins = tia_tick(&tia, pins); // 148 - 227
-        if ((clock - 148) / 4 == 19)
+        pins = tia_tick(&tia, pins); // 68 - 227
+        switch (bkClock)
         {
-            TEST_CHECK(g_colour == 0x04);
-        }
-        else
-        {
-            TEST_CHECK(g_colour == 0x02);
+            case 1:
+            case 10:
+            case 13:
+                TEST_CHECK(g_colour == 0x06);
+                break;
+
+            case 21:
+            case 30:
+            case 33:
+                TEST_CHECK(g_colour == 0x08);
+                break;
+
+            default:
+                TEST_CHECK(g_colour == 0x02);
+                break;
         }
     }
 }
 
 TEST_LIST = {
-    { "test_register_write",    test_register_write },
-    { "test_register_read",     test_register_read },
-    { "test_WSYNC_RDY",         test_WSYNC_RDY },
-    { "test_HSYNC_RDY",         test_HSYNC_RDY },
-    { "test_playfield_01",      test_playfield_01 },
-    { "test_playfield_02",      test_playfield_02},
+    { "test_register_write",            test_register_write },
+    { "test_register_read",             test_register_read },
+    { "test_WSYNC_RDY",                 test_WSYNC_RDY },
+    { "test_HSYNC_RDY",                 test_HSYNC_RDY },
+    { "test_playfield_01_duplicate",    test_playfield_01_duplicate },
+    { "test_playfield_02_reflect",      test_playfield_02_reflect },
+    { "test_playfield_03_score",        test_playfield_03_score },
     { NULL, NULL }
 };
