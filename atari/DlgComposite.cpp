@@ -152,7 +152,7 @@ DWORD WINAPI ShowDlgComposite(LPVOID lpParam)
 
 void OnTick(uint8_t data)
 {
-	screen[x][y] = RGB((uint8_t)(ntscRGB[data / 2] >> 16), (uint8_t)(ntscRGB[data / 2] >> 8), (uint8_t)(ntscRGB[data / 2]));
+	screen[x][y] = RGB((uint8_t)(ntscRGB[data / 2] >> 0), (uint8_t)(ntscRGB[data / 2] >> 8), (uint8_t)(ntscRGB[data / 2] >> 16));
 	x++;
 }
 
