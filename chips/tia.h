@@ -136,6 +136,14 @@ typedef struct {
     cb_tv hsync;
     cb_tv vsync;
     uint32_t PF;
+
+    uint8_t posBL;
+    uint8_t posM0;
+    uint8_t posM1;
+    uint8_t posP0;
+    uint8_t posP1;
+
+    uint8_t ENADELBL;
 } tia_t;
 
 /* extract 8-bit data bus from 64-bit pins */
@@ -252,6 +260,16 @@ uint64_t tia_tick(tia_t* tia, uint64_t pins);
 #define CHIPS_ASSERT(c) assert(c)
 #endif
 
+// Data bit masks
+#define TIA_BIT_D0              0x01
+#define TIA_BIT_D1              0x02
+#define TIA_BIT_D2              0x04
+#define TIA_BIT_D3              0x08
+#define TIA_BIT_D4              0x10
+#define TIA_BIT_D5              0x20
+#define TIA_BIT_D6              0x40
+#define TIA_BIT_D7              0x80
+
 // Bit masks for PF0,PF1,PF2 to PF construction
 #define TIA_PF0_BITS            0x0000000F
 #define TIA_PF1_BITS            0x00000FF0
@@ -266,10 +284,10 @@ uint64_t tia_tick(tia_t* tia, uint64_t pins);
 #define TIA_OBJECT_BIT_BL       0b00100000
 
 // CTRLPF bit accessors
-#define TIA_CTRLPF_BIT_REF      0b00000001
-#define TIA_CTRLPF_BIT_SCORE    0b00000010
-#define TIA_CTRLPF_BIT_PFP      0b00000100
-#define TIA_CTRLPF_BIT_BALLSIZE 0b00110000
+#define TIA_CTRLPF_BIT_REF      TIA_BIT_D0
+#define TIA_CTRLPF_BIT_SCORE    TIA_BIT_D1
+#define TIA_CTRLPF_BIT_PFP      TIA_BIT_D2
+#define TIA_CTRLPF_BIT_BALLSIZE (TIA_BIT_D4|TIA_BIT_D5)
 
 uint64_t tia_init(tia_t* c, enum TV tv, cb_tv colourtick, cb_tv hsync, cb_tv vsync)
 {
@@ -286,6 +304,8 @@ uint64_t tia_init(tia_t* c, enum TV tv, cb_tv colourtick, cb_tv hsync, cb_tv vsy
 
 uint64_t tia_tick(tia_t* c, uint64_t pins)
 {
+    int16_t pixelclock = c->colourclock - 68;
+
     if ((pins & (TIA_CS0|TIA_CS1|TIA_CS2|TIA_CS3)) == TIA_CS1) {
         uint8_t addr = TIA_GET_ADDR(pins);
 
@@ -310,18 +330,23 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
 				break;
 
 			case RESP0:
-				break;
+                c->posP0 = (pixelclock < 0) ? 0 : pixelclock;
+                break;
 
 			case RESP1:
-				break;
+                c->posP1 = (pixelclock < 0) ? 0 : pixelclock;
+                break;
 
 			case RESM0:
-				break;
+                c->posM0 = (pixelclock < 0) ? 0 : pixelclock;
+                break;
 
 			case RESM1:
-				break;
+                c->posM1 = (pixelclock < 0) ? 0 : pixelclock;
+                break;
 
 			case RESBL:
+                c->posBL = (pixelclock < 0) ? 0 : pixelclock;
 				break;
 
             case PF0:
@@ -358,7 +383,7 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
 		}
     }
 
-    if (c->colourclock < 68)
+    if (pixelclock < 0)
     {
         // Horizontal blanking
         if (c->colourtick != NULL)
@@ -369,13 +394,24 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
     else
     {
         uint8_t pixels = 0x00;
-        uint8_t colour;
+        uint8_t regColu;
 
-        // PF Playfield
-        if (c->colourclock < 148)
+        // BL - Ball
+        if ((c->regWrite[VDELBL] & TIA_BIT_D0 ? c->regWrite[ENABL] : c->ENADELBL) & TIA_BIT_D1)
+        {
+            // Ball enabled
+            uint8_t widthBL = 1 << (c->regWrite[CTRLPF] & TIA_CTRLPF_BIT_BALLSIZE >> 4);
+            if (pixelclock >= c->posBL && pixelclock <= (c->posBL + (widthBL - 1)))
+            {
+                pixels |= TIA_OBJECT_BIT_BL;
+            }
+        }
+
+        // PF - Playfield
+        if (pixelclock < 80)
         {
             // Left side
-            pixels |= c->PF & (1 << ((c->colourclock - 68) / 4)) ? TIA_OBJECT_BIT_PF : 0x00;
+            pixels |= c->PF & (1 << (pixelclock / 4)) ? TIA_OBJECT_BIT_PF : 0x00;
         }
         else
         {
@@ -383,12 +419,12 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
             if (c->regWrite[CTRLPF] & TIA_CTRLPF_BIT_REF)
             {
                 // Reflect
-                pixels |= c->PF & (0b10000000000000000000 >> ((c->colourclock - 148) / 4)) ? TIA_OBJECT_BIT_PF : 0x00;
+                pixels |= c->PF & 1 << (19 - ((pixelclock - 80) / 4)) ? TIA_OBJECT_BIT_PF : 0x00;
             }
             else
             {
                 // Duplicate
-                pixels |= c->PF & 1 << ((c->colourclock - 148) / 4) ? TIA_OBJECT_BIT_PF : 0x00;
+                pixels |= c->PF & 1 << ((pixelclock - 80) / 4) ? TIA_OBJECT_BIT_PF : 0x00;
             }
         }
 
@@ -397,31 +433,34 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
         {
             if (c->regWrite[CTRLPF] & TIA_CTRLPF_BIT_SCORE)
             {
-                if (c->colourclock < 148)
+                if (pixelclock < 80)
                 {
-                    colour = COLUP0;
+                    regColu = COLUP0;
                 }
                 else
                 {
-                    colour = COLUP1;
+                    regColu = COLUP1;
                 }
             }
             else
             {
-                colour = COLUPF;
+                regColu = COLUPF;
             }
         }
         else
         {
-            colour = COLUBK;
+            regColu = COLUBK;
         }
 
         // Drawing pixel
         if (c->colourtick != NULL)
         {
-            c->colourtick(c->regWrite[colour]);
+            c->colourtick(c->regWrite[regColu]);
         }
     }
+
+    // Shift delayed graphic bits
+    c->ENADELBL = c->regWrite[ENABL];
 
     // Horizontal sync
     if (c->colourclock == 227)

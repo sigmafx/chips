@@ -296,6 +296,25 @@ void test_playfield_03_score(void)
     }
 }
 
+void test_ball_01_RESBL(void)
+{
+    tia_t tia;
+    uint64_t pins;
+    uint16_t clock;
+
+    pins = init_with_colour(&tia);
+
+    TIA_RESET_RW(pins);
+    TIA_SET_ADDR(pins, RESBL);
+    for (clock = 0; clock < 228; clock++)
+    {
+        TIA_SET_DATA(pins, 0xFF);
+        pins = tia_tick(&tia, pins);
+
+        TEST_CHECK(tia.posBL == (clock < 68 ? 0 : clock - 68));
+    }
+}
+
 TEST_LIST = {
     { "test_register_write",            test_register_write },
     { "test_register_read",             test_register_read },
@@ -304,5 +323,6 @@ TEST_LIST = {
     { "test_playfield_01_duplicate",    test_playfield_01_duplicate },
     { "test_playfield_02_reflect",      test_playfield_02_reflect },
     { "test_playfield_03_score",        test_playfield_03_score },
+    { "test_ball_01_RESBL",               test_ball_01_RESBL},
     { NULL, NULL }
 };
