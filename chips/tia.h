@@ -144,6 +144,8 @@ typedef struct {
     uint8_t posP1;
 
     uint8_t ENADELBL;
+    uint8_t GRDELP0;
+    uint8_t GRDELP1;
 } tia_t;
 
 /* extract 8-bit data bus from 64-bit pins */
@@ -397,15 +399,27 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
         uint8_t regColu;
 
         // BL - Ball
-        if ((c->regWrite[VDELBL] & TIA_BIT_D0 ? c->regWrite[ENABL] : c->ENADELBL) & TIA_BIT_D1)
+        if ((c->regWrite[VDELBL] & TIA_BIT_D0 ? c->ENADELBL : c->regWrite[ENABL]) & TIA_BIT_D1)
         {
             // Ball enabled
-            uint8_t widthBL = 1 << (c->regWrite[CTRLPF] & TIA_CTRLPF_BIT_BALLSIZE >> 4);
-            if (pixelclock >= c->posBL && pixelclock <= (c->posBL + (widthBL - 1)))
+            uint8_t widthBL = 1 << ((c->regWrite[CTRLPF] & TIA_CTRLPF_BIT_BALLSIZE) >> 4);
+            int16_t wrapBL = c->posBL + widthBL - 160;
+
+            if ((pixelclock >= c->posBL && pixelclock < c->posBL + widthBL) || pixelclock < wrapBL)
             {
                 pixels |= TIA_OBJECT_BIT_BL;
             }
         }
+
+        // P0 - Player 0
+        //c->regWrite[VDELP0] & TIA_BIT_D0 ? c->GRDELP0 : c->regWrite[GRP0]
+
+        // P1 - Player 1
+        //c->regWrite[VDELP1] & TIA_BIT_D0 ? c->GRDELP1 : c->regWrite[GRP1]
+
+        // M0 - Missile 0
+
+        // M1 - Missile 1
 
         // PF - Playfield
         if (pixelclock < 80)
@@ -429,6 +443,11 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
         }
 
         // Apply priorities / settings to decide colour
+        if (pixels & TIA_OBJECT_BIT_BL)
+        {
+            regColu = COLUPF;
+        }
+        else
         if (pixels & TIA_OBJECT_BIT_PF)
         {
             if (c->regWrite[CTRLPF] & TIA_CTRLPF_BIT_SCORE)
@@ -460,7 +479,10 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
     }
 
     // Shift delayed graphic bits
+    // TODO - These s hould be moved across 1 bit at a time as they displayed
     c->ENADELBL = c->regWrite[ENABL];
+    c->GRDELP0 = c->regWrite[GRP0];
+    c->GRDELP1 = c->regWrite[GRP1];
 
     // Horizontal sync
     if (c->colourclock == 227)
