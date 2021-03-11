@@ -118,6 +118,11 @@ enum TV {
     PAL = 1
 };
 
+enum Direction {
+    forward = 0,
+    reverse = 1
+};
+
 typedef void(*cb_tv)(uint8_t);
 
 /* I/O port state */
@@ -125,6 +130,30 @@ typedef struct {
     uint8_t dr;
     uint8_t ddr;
 } tia_port_t;
+
+/* Bit register */
+typedef struct {
+    bool enabled;
+    uint8_t width;
+
+    uint8_t ticks;
+    uint8_t reg;
+    uint8_t delayreg;
+} tia_bitreg_t;
+
+/* Shift register */
+typedef struct {
+    uint8_t width;
+
+    bool enabled;
+    enum Direction direction;
+    uint8_t divider;
+
+    uint8_t ticks;
+    uint8_t bits;
+    uint8_t reg;
+    uint8_t delayreg;
+} tia_shiftreg_t;
 
 /* TIA state */
 typedef struct {
@@ -135,7 +164,6 @@ typedef struct {
     cb_tv colourtick;
     cb_tv hsync;
     cb_tv vsync;
-    uint32_t PF;
 
     uint8_t posBL;
     uint8_t posM0;
@@ -143,9 +171,14 @@ typedef struct {
     uint8_t posP0;
     uint8_t posP1;
 
-    uint8_t ENADELBL;
-    uint8_t GRDELP0;
-    uint8_t GRDELP1;
+    tia_bitreg_t bitBL;
+    tia_bitreg_t bitM0;
+    tia_bitreg_t bitM1;
+    tia_shiftreg_t shiftPF0;
+    tia_shiftreg_t shiftPF1;
+    tia_shiftreg_t shiftPF2;
+    tia_shiftreg_t shiftP0;
+    tia_shiftreg_t shiftP1;
 } tia_t;
 
 /* extract 8-bit data bus from 64-bit pins */
@@ -262,7 +295,7 @@ uint64_t tia_tick(tia_t* tia, uint64_t pins);
 #define CHIPS_ASSERT(c) assert(c)
 #endif
 
-// Data bit masks
+// Register bit masks
 #define TIA_BIT_D0              0x01
 #define TIA_BIT_D1              0x02
 #define TIA_BIT_D2              0x04
@@ -272,11 +305,6 @@ uint64_t tia_tick(tia_t* tia, uint64_t pins);
 #define TIA_BIT_D6              0x40
 #define TIA_BIT_D7              0x80
 
-// Bit masks for PF0,PF1,PF2 to PF construction
-#define TIA_PF0_BITS            0x0000000F
-#define TIA_PF1_BITS            0x00000FF0
-#define TIA_PF2_BITS            0x000FF000
-
 // Object visibility for current colour clock
 #define TIA_OBJECT_BIT_PF       0b00000001
 #define TIA_OBJECT_BIT_P0       0b00000010
@@ -285,11 +313,97 @@ uint64_t tia_tick(tia_t* tia, uint64_t pins);
 #define TIA_OBJECT_BIT_M1       0b00010000
 #define TIA_OBJECT_BIT_BL       0b00100000
 
-// CTRLPF bit accessors
-#define TIA_CTRLPF_BIT_REF      TIA_BIT_D0
-#define TIA_CTRLPF_BIT_SCORE    TIA_BIT_D1
-#define TIA_CTRLPF_BIT_PFP      TIA_BIT_D2
-#define TIA_CTRLPF_BIT_BALLSIZE (TIA_BIT_D4|TIA_BIT_D5)
+// Bit register
+void tia_bitreg_init(tia_bitreg_t* bitreg)
+{
+    bitreg->enabled = false;
+    bitreg->delayreg = 0x00;
+}
+
+void tia_bitreg_start(tia_bitreg_t* bitreg, uint8_t divider, uint8_t set, uint8_t ffwd)
+{
+    bitreg->width = 1 << divider;
+
+    if (ffwd < bitreg->width)
+    {
+        bitreg->enabled = true;
+        bitreg->reg = set;
+        bitreg->ticks = ffwd;
+    }
+    else
+    {
+        bitreg->enabled = false;
+    }
+}
+
+bool tia_bitreg_tick(tia_bitreg_t* bitreg, bool delay)
+{
+    bool ret = false;
+
+    if (bitreg->enabled)
+    {
+        ret = (delay ? bitreg->delayreg : bitreg->reg) & 0x01;
+
+        bitreg->ticks++;
+
+        if (bitreg->ticks == bitreg->width)
+        {
+            bitreg->delayreg = bitreg->reg;
+            bitreg->enabled = false;
+        }
+    }
+
+    return ret;
+}
+
+// Shift register
+void tia_shiftreg_init(tia_shiftreg_t* shiftreg, uint8_t width)
+{
+    shiftreg->width = width;
+    shiftreg->enabled = false;
+    shiftreg->delayreg = 0x00;
+}
+
+void tia_shiftreg_enable(tia_shiftreg_t* shiftreg, uint8_t divider, enum Direction direction, uint8_t set)
+{
+    shiftreg->enabled = true;
+    shiftreg->direction = direction;
+    shiftreg->divider = divider;
+    shiftreg->ticks = 0;
+    shiftreg->bits = 0;
+    shiftreg->reg = set;
+}
+
+bool tia_shiftreg_tick(tia_shiftreg_t* shiftreg, bool delay)
+{
+    bool ret = false;
+
+    if (shiftreg->enabled)
+    {
+        uint8_t maskIn = 1 << (shiftreg->direction == reverse ? 0x00 : shiftreg->width - 1);
+        uint8_t maskOut = 1 << (shiftreg->direction == reverse ? shiftreg->width - 1 : 0x00);
+
+        ret = (delay ? shiftreg->delayreg : shiftreg->reg) & maskOut;
+
+        shiftreg->ticks++;
+
+        if (shiftreg->bits != (shiftreg->ticks / shiftreg->divider))
+        {
+            // Shift
+            shiftreg->delayreg = shiftreg->direction == reverse ? shiftreg->delayreg << 1 : shiftreg->delayreg >> 1;
+            shiftreg->delayreg |= shiftreg->reg & maskOut ? maskIn : 0x00;
+            shiftreg->reg = shiftreg->direction == reverse ? shiftreg->reg << 1 : shiftreg->reg >> 1;
+            shiftreg->bits++;
+
+            if (shiftreg->bits == shiftreg->width)
+            {
+                shiftreg->enabled = false;
+            }
+        }
+    }
+
+    return ret;
+}
 
 uint64_t tia_init(tia_t* c, enum TV tv, cb_tv colourtick, cb_tv hsync, cb_tv vsync)
 {
@@ -300,6 +414,15 @@ uint64_t tia_init(tia_t* c, enum TV tv, cb_tv colourtick, cb_tv hsync, cb_tv vsy
 	c->colourtick = colourtick;
 	c->hsync = hsync;
 	c->vsync = vsync;
+
+    tia_bitreg_init(&c->bitBL);
+    tia_bitreg_init(&c->bitM0);
+    tia_bitreg_init(&c->bitM1);
+    tia_shiftreg_init(&c->shiftPF0, 4);
+    tia_shiftreg_init(&c->shiftPF1, 8);
+    tia_shiftreg_init(&c->shiftPF2, 8);
+    tia_shiftreg_init(&c->shiftP0, 8);
+    tia_shiftreg_init(&c->shiftP1, 8);
 
     return 0ULL;
 }
@@ -351,32 +474,6 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
                 c->posBL = (pixelclock < 0) ? 0 : pixelclock;
 				break;
 
-            case PF0:
-				c->regWrite[addr] = data;
-                c->PF &= ~TIA_PF0_BITS;
-                c->PF |= ((uint32_t)data >> 4);
-                break;
-
-            case PF1:
-				c->regWrite[addr] = data;
-                c->PF &= ~TIA_PF1_BITS;
-                data = ((data & 0x80) >> 7) |
-                    ((data & 0x40) >> 5) |
-                    ((data & 0x20) >> 3) |
-                    ((data & 0x10) >> 1) |
-                    ((data & 0x01) << 7) |
-                    ((data & 0x02) << 5) |
-                    ((data & 0x04) << 3) |
-                    ((data & 0x08) << 1);
-                c->PF |= ((uint32_t)data << 4);
-                break;
-
-            case PF2:
-				c->regWrite[addr] = data;
-                c->PF &= ~TIA_PF2_BITS;
-                c->PF |= ((uint32_t)data << 12);
-                break;
-
 			default:
 				// Write to register
 				c->regWrite[addr] = data;
@@ -398,49 +495,109 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
         uint8_t pixels = 0x00;
         uint8_t regColu;
 
-        // BL - Ball
-        if ((c->regWrite[VDELBL] & TIA_BIT_D0 ? c->ENADELBL : c->regWrite[ENABL]) & TIA_BIT_D1)
-        {
-            // Ball enabled
-            uint8_t widthBL = 1 << ((c->regWrite[CTRLPF] & TIA_CTRLPF_BIT_BALLSIZE) >> 4);
-            int16_t wrapBL = c->posBL + widthBL - 160;
-
-            if ((pixelclock >= c->posBL && pixelclock < c->posBL + widthBL) || pixelclock < wrapBL)
-            {
-                pixels |= TIA_OBJECT_BIT_BL;
-            }
-        }
-
-        // P0 - Player 0
-        //c->regWrite[VDELP0] & TIA_BIT_D0 ? c->GRDELP0 : c->regWrite[GRP0]
-
-        // P1 - Player 1
-        //c->regWrite[VDELP1] & TIA_BIT_D0 ? c->GRDELP1 : c->regWrite[GRP1]
-
-        // M0 - Missile 0
-
-        // M1 - Missile 1
-
         // PF - Playfield
-        if (pixelclock < 80)
+        switch (pixelclock)
         {
-            // Left side
-            pixels |= c->PF & (1 << (pixelclock / 4)) ? TIA_OBJECT_BIT_PF : 0x00;
-        }
-        else
-        {
-            // Right side
-            if (c->regWrite[CTRLPF] & TIA_CTRLPF_BIT_REF)
+        case 0:
+            tia_shiftreg_enable(&c->shiftPF0, 4, forward, c->regWrite[PF0] >> 4);
+            break;
+
+        case 16:
+            tia_shiftreg_enable(&c->shiftPF1, 4, reverse, c->regWrite[PF1]);
+            break;
+
+        case 48:
+            tia_shiftreg_enable(&c->shiftPF2, 4, forward, c->regWrite[PF2]);
+            break;
+
+        case 80:
+            if (!(c->regWrite[CTRLPF] & TIA_BIT_D0))
             {
-                // Reflect
-                pixels |= c->PF & 1 << (19 - ((pixelclock - 80) / 4)) ? TIA_OBJECT_BIT_PF : 0x00;
+                tia_shiftreg_enable(&c->shiftPF0, 4, forward, c->regWrite[PF0] >> 4);
             }
             else
             {
-                // Duplicate
-                pixels |= c->PF & 1 << ((pixelclock - 80) / 4) ? TIA_OBJECT_BIT_PF : 0x00;
+                tia_shiftreg_enable(&c->shiftPF2, 4, reverse, c->regWrite[PF2]);
             }
+            break;
+
+        case 96:
+            if (!(c->regWrite[CTRLPF] & TIA_BIT_D0))
+            {
+                tia_shiftreg_enable(&c->shiftPF1, 4, reverse, c->regWrite[PF1]);
+            }
+            break;
+
+        case 112:
+            if (c->regWrite[CTRLPF] & TIA_BIT_D0)
+            {
+                tia_shiftreg_enable(&c->shiftPF1, 4, forward, c->regWrite[PF1]);
+            }
+            break;
+
+        case 128:
+            if (!(c->regWrite[CTRLPF] & TIA_BIT_D0))
+            {
+                tia_shiftreg_enable(&c->shiftPF2, 4, forward, c->regWrite[PF2]);
+            }
+            break;
+
+        case 144:
+            if (c->regWrite[CTRLPF] & TIA_BIT_D0)
+            {
+                tia_shiftreg_enable(&c->shiftPF0, 4, reverse, c->regWrite[PF0] >> 4);
+            }
+            break;
         }
+
+        // BL - Ball
+        if (pixelclock == 0 || pixelclock == c->posBL)
+        {
+            tia_bitreg_start(&c->bitBL, (c->regWrite[CTRLPF] & (TIA_BIT_D4|TIA_BIT_D5)) >> 4, (c->regWrite[ENABL] & TIA_BIT_D1) >> 1, pixelclock == c->posBL ? 0 : 160 - c->posBL);
+        }
+
+        // P0 - Player 0
+        if (pixelclock == c->posP0)// TODO Add copies
+        {
+            uint8_t size;
+
+            size = (c->regWrite[NUSIZ0] & (TIA_BIT_D0|TIA_BIT_D1|TIA_BIT_D2));
+            size = size == 0b101 ? 1 : size == 0b111 ? 2 : 0;
+
+            tia_shiftreg_enable(&c->shiftP0, 1 << size, c->regWrite[REFP0] & TIA_BIT_D3 ? reverse : forward, c->regWrite[GRP0]);
+        }
+
+        // P1 - Player 1
+        if (pixelclock == c->posP1)// TODO Add copies
+        {
+            uint8_t size;
+
+            size = (c->regWrite[NUSIZ1] & (TIA_BIT_D0|TIA_BIT_D1|TIA_BIT_D2));
+            size = size == 0b101 ? 1 : size == 0b111 ? 2 : 0;
+
+            tia_shiftreg_enable(&c->shiftP1, 1 << size, c->regWrite[REFP1] & TIA_BIT_D3 ? reverse : forward, c->regWrite[GRP1]);
+        }
+
+        // M0 - Missile 0
+        if (pixelclock == 0 || pixelclock == c->posM0)// TODO Add copies
+        {
+            tia_bitreg_start(&c->bitM0, (c->regWrite[NUSIZ0] & (TIA_BIT_D4|TIA_BIT_D5)) >> 4, c->regWrite[ENAM0] >> 1, pixelclock == c->posM0 ? 0 : 160 - c->posM0);
+        }
+
+        // M1 - Missile 1
+        if (pixelclock == 0 || pixelclock == c->posM1)// TODO Add copies
+        {
+            tia_bitreg_start(&c->bitM1, (c->regWrite[NUSIZ1] & (TIA_BIT_D4|TIA_BIT_D5)) >> 4, c->regWrite[ENAM1] >> 1, pixelclock == c->posM1 ? 0 : 160 - c->posM1);
+        }
+
+        pixels |= tia_bitreg_tick(&c->bitBL, c->regWrite[VDELBL] & TIA_BIT_D0) ? TIA_OBJECT_BIT_BL : 0x00;
+        pixels |= tia_shiftreg_tick(&c->shiftPF0, false) ? TIA_OBJECT_BIT_PF : 0x00;
+        pixels |= tia_shiftreg_tick(&c->shiftPF1, false) ? TIA_OBJECT_BIT_PF : 0x00;
+        pixels |= tia_shiftreg_tick(&c->shiftPF2, false) ? TIA_OBJECT_BIT_PF : 0x00;
+        pixels |= tia_bitreg_tick(&c->bitM0, false) ? TIA_OBJECT_BIT_M0 : 0x00;
+        pixels |= tia_bitreg_tick(&c->bitM1, false) ? TIA_OBJECT_BIT_M1 : 0x00;
+        pixels |= tia_shiftreg_tick(&c->shiftP0, c->regWrite[VDELP0] & TIA_BIT_D0) ? TIA_OBJECT_BIT_P0 : 0x00;
+        pixels |= tia_shiftreg_tick(&c->shiftP1, c->regWrite[VDELP1] & TIA_BIT_D0) ? TIA_OBJECT_BIT_P1 : 0x00;
 
         // Apply priorities / settings to decide colour
         if (pixels & TIA_OBJECT_BIT_BL)
@@ -450,7 +607,7 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
         else
         if (pixels & TIA_OBJECT_BIT_PF)
         {
-            if (c->regWrite[CTRLPF] & TIA_CTRLPF_BIT_SCORE)
+            if (c->regWrite[CTRLPF] & TIA_BIT_D1)
             {
                 if (pixelclock < 80)
                 {
@@ -477,12 +634,6 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
             c->colourtick(c->regWrite[regColu]);
         }
     }
-
-    // Shift delayed graphic bits
-    // TODO - These s hould be moved across 1 bit at a time as they displayed
-    c->ENADELBL = c->regWrite[ENABL];
-    c->GRDELP0 = c->regWrite[GRP0];
-    c->GRDELP1 = c->regWrite[GRP1];
 
     // Horizontal sync
     if (c->colourclock == 227)
