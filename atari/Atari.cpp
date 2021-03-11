@@ -20,7 +20,6 @@ DWORD WINAPI Start(LPVOID lpParam)
 	uint64_t pins_cart;
 	uint64_t pins_tia;
 	uint64_t pins_6532;
-	uint8_t clock = 0;
 
 	// Initialise CPU
 	m6502_desc.bcd_disabled = true;
@@ -58,7 +57,7 @@ DWORD WINAPI Start(LPVOID lpParam)
 		// Set RDY
 		TIA_GET_RDY(pins_tia) ? M6502_SET_RDY(pins_6502) : M6502_RESET_RDY(pins_6502);
 
-		if (clock == 0)
+		if (TIA_GET_PH1(pins_tia))
 		{
 			pins_6502 = m6502_tick(&m6502, pins_6502);
 			addr = M6502_GET_ADDR(pins_6502);
@@ -125,12 +124,6 @@ DWORD WINAPI Start(LPVOID lpParam)
 				M6532_SET_DATA(pins_6532, data);
 				TIA_SET_DATA(pins_tia, data);
 			}
-		}
-
-		clock++;
-		if (clock == 3)
-		{
-			clock = 0;
 		}
 	}
 }
