@@ -23,7 +23,7 @@
     *           +-----------+           *
     *   D0  <-->|           |           *
     *        ...|           |           *
-    *   D7  <-->|           |---> PH1   *
+    *   D7  <-->|           |---> PH0   *
     *           |           |           *
     *   A0  --->|           |---> RDY   *
     *        ...|           |           *
@@ -102,7 +102,7 @@ extern "C" {
 #define TIA_CS3       (1ULL<<27)
 #define TIA_RW        (1ULL<<28)
 #define TIA_RDY       (1ULL<<29)
-#define TIA_PH1       (1ULL<<30)
+#define TIA_PH0       (1ULL<<30)
 
 /* input port pins */
 #define TIA_I0        (1ULL<<48)
@@ -130,7 +130,7 @@ typedef struct {
 typedef struct {
     enum TV tv;
     uint8_t clk;
-    uint8_t clkPH1;
+    uint8_t clkPH0;
     uint8_t regWrite[0x2D];
     uint8_t regRead[0x0E];
 
@@ -167,7 +167,7 @@ typedef struct {
 #define TIA_GET_CS3(p) ((p)&TIA_CS3)
 #define TIA_GET_RW(p) ((p)&TIA_RW)
 #define TIA_GET_RDY(p) ((p)&TIA_RDY)
-#define TIA_GET_PH1(p) ((p)&TIA_PH1)
+#define TIA_GET_PH0(p) ((p)&TIA_PH0)
 
 /* Set/reset input control pins */
 #define TIA_SET_CS0(p) (p|=TIA_CS0)
@@ -182,8 +182,8 @@ typedef struct {
 #define TIA_RESET_RW(p) (p&=~TIA_RW)
 #define TIA_SET_RDY(p) (p|=TIA_RDY)
 #define TIA_RESET_RDY(p) (p&=~TIA_RDY)
-#define TIA_SET_PH1(p) (p|=TIA_PH1)
-#define TIA_RESET_PH1(p) (p&=~TIA_PH1)
+#define TIA_SET_PH0(p) (p|=TIA_PH0)
+#define TIA_RESET_PH0(p) (p&=~TIA_PH0)
 
 // Write registers
 #define VSYNC   0x00
@@ -673,12 +673,12 @@ uint64_t tia_tick(tia_t* c, uint64_t pins)
     // Set RDY
     c->regWrite[WSYNC] ? TIA_SET_RDY(pins) : TIA_RESET_RDY(pins);
 
-    // Set PH1
-    c->clkPH1 == 0 ? TIA_SET_PH1(pins) : TIA_RESET_PH1(pins);
-    c->clkPH1++;
-    if(c->clkPH1 == 3)
+    // Set PH0
+    c->clkPH0 == 0 ? TIA_SET_PH0(pins) : TIA_RESET_PH0(pins);
+    c->clkPH0++;
+    if(c->clkPH0 == 3)
     {
-        c->clkPH1 = 0;
+        c->clkPH0 = 0;
     }
 
     return pins;

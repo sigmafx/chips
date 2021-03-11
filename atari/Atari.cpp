@@ -57,7 +57,7 @@ DWORD WINAPI Start(LPVOID lpParam)
 		// Set RDY
 		TIA_GET_RDY(pins_tia) ? M6502_SET_RDY(pins_6502) : M6502_RESET_RDY(pins_6502);
 
-		if (TIA_GET_PH1(pins_tia))
+		if (TIA_GET_PH0(pins_tia))
 		{
 			pins_6502 = m6502_tick(&m6502, pins_6502);
 			addr = M6502_GET_ADDR(pins_6502);
